@@ -1,0 +1,9 @@
+<library path="moveit_differential_ik_plugin">
+  <class name="moveit_differential_ik_plugin/RLKinematics"
+         type="moveit_differential_ik_plugin::RLKinematics"
+         base_class_type="ik_interface::IKBaseClass">
+    <description>
+      ik for admittance control
+    </description>
+  </class>
+</library>

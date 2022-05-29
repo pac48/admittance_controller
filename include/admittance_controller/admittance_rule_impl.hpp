@@ -78,11 +78,11 @@ controller_interface::return_type AdmittanceRule::configure(std::shared_ptr<rclc
   {
     try
     {
-      // TODO(destogl): add "ik_plugin_base" into separate package and then rename the package in
+      // TODO(destogl): add "ik_interface" into separate package and then rename the package in
       // the next line from "admittance_controller" to "ik_base_plugin"
-      ik_loader_ = std::make_shared<pluginlib::ClassLoader<ik_plugin_base::IKBaseClass>>(
-        "admittance_controller", "ik_plugin_base::IKBaseClass");
-      ik_ = std::unique_ptr<ik_plugin_base::IKBaseClass>(
+      ik_loader_ = std::make_shared<pluginlib::ClassLoader<ik_interface::IKBaseClass>>(
+        "ik_interface", "ik_interface::IKBaseClass");
+      ik_ = std::unique_ptr<ik_interface::IKBaseClass>(
         ik_loader_->createUnmanagedInstance(parameters_.ik_plugin_name_));
       if (!ik_->initialize(node, parameters_.ik_group_name_))
       {
@@ -233,7 +233,7 @@ controller_interface::return_type AdmittanceRule::update(
     for (size_t index = 0; index < reference_joint_state.velocities.size(); ++index)
     {
       reference_joint_deltas_vec_[index] =
-        reference_joint_state.velocities[index] * period.seconds();
+        reference_joint_state.velocities[index] * .1;//period.seconds();
     }
   }
   else
@@ -416,10 +416,10 @@ void AdmittanceRule::calculate_admittance_rule(
                                                    parameters_.damping_[axis] * admittance_velocity_arr_[axis] -
                                                    parameters_.stiffness_[axis] * pose_error[axis]);
 
-      admittance_velocity_arr_[axis] += admittance_acceleration * period.seconds();
+      admittance_velocity_arr_[axis] += admittance_acceleration * 0.1;//period.nanoseconds()
 
       // Calculate position
-      desired_relative_pose[axis] = admittance_velocity_arr_[axis] * period.seconds();
+      desired_relative_pose[axis] = admittance_velocity_arr_[axis] * 0.1;
       if (std::fabs(desired_relative_pose[axis]) < POSE_EPSILON)
       {
         desired_relative_pose[axis] = 0.0;
@@ -454,7 +454,7 @@ controller_interface::return_type AdmittanceRule::calculate_desired_joint_state(
     {
       desired_joint_state.positions[i] =
         current_joint_state.positions[i] + relative_desired_joint_state_vec_[i];
-      desired_joint_state.velocities[i] = relative_desired_joint_state_vec_[i] / period.seconds();
+      desired_joint_state.velocities[i] = relative_desired_joint_state_vec_[i] / 0.1;//period.seconds();
       // TODO(destogl): for now acceleration commands are not used but here simply resetted
       desired_joint_state.accelerations[i] = 0.0;
       // TODO(destogl): in the future we need here to remember previously commanded velocity

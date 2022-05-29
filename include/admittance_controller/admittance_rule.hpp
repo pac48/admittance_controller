@@ -34,7 +34,7 @@
 #include <tf2_ros/buffer.h>
 
 // Differential kinematics plugins
-#include "ik_plugin_base/ik_plugin_base.hpp"
+#include "ik_interface/ik_plugin_base.hpp"
 #include "pluginlib/class_loader.hpp"
 
 namespace {  // Utility namespace
@@ -179,7 +179,7 @@ public:
   {
     add_string_parameter("IK.base", false);
     add_string_parameter("IK.group_name", false);
-//    add_string_parameter("IK.plugin_name", false);
+    add_string_parameter("IK.plugin_name", false);
     add_string_parameter("control_frame", true);
     add_string_parameter("sensor_frame", false);
 
@@ -434,7 +434,7 @@ public:
   bool feedforward_commanded_input_ = true;
 
   // An identity matrix is needed in several places
-  geometry_msgs::msg::TransformStamped identity_transform_;
+   geometry_msgs::msg::TransformStamped identity_transform_;
 
   // Admittance parameters
   // TODO(destogl): unified mode does not have to be here
@@ -469,8 +469,8 @@ protected:
   );
 
   // Differential IK algorithm (loads a plugin)
-  std::shared_ptr<pluginlib::ClassLoader<ik_plugin_base::IKBaseClass>> ik_loader_;
-  std::unique_ptr<ik_plugin_base::IKBaseClass> ik_;
+  std::shared_ptr<pluginlib::ClassLoader<ik_interface::IKBaseClass>> ik_loader_;
+  std::unique_ptr<ik_interface::IKBaseClass> ik_;
 
   // Clock
   rclcpp::Clock::SharedPtr clock_;

@@ -40,7 +40,9 @@ constexpr size_t ROS_LOG_THROTTLE_PERIOD = 1 * 1000;  // Milliseconds to throttl
 
 namespace admittance_controller
 {
-AdmittanceController::AdmittanceController()
+    using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+
+    AdmittanceController::AdmittanceController()
 : controller_interface::ControllerInterface()
 {
 }
@@ -73,48 +75,49 @@ CallbackReturn AdmittanceController::on_init()
     // get_node()->declare_parameter<std::string>("IK.plugin", "");
     admittance_->parameters_.declare_parameters();
 
+    auto jointnames = get_node()->get_parameter("joints").as_string_array();
 
-      using namespace std::chrono_literals;
+      RCLCPP_INFO(get_node()->get_logger(), jointnames[0].c_str());
 
-
-      auto parameters_client = std::make_shared<rclcpp::SyncParametersClient>(get_node());
-      while (!parameters_client->wait_for_service(1s)) {
-          if (!rclcpp::ok()) {
-              RCLCPP_ERROR(get_node()->get_logger(), "Interrupted while waiting for the service. Exiting.");
-              rclcpp::shutdown();
-          }
-          RCLCPP_INFO(get_node()->get_logger(), "service not available, waiting again...");
-      }
-
-      allow_integration_in_goal_trajectories_ = true;
-
-      // Set several different types of parameters.
-      auto set_parameters_results = parameters_client->set_parameters(
-              {
-                  rclcpp::Parameter("foo", 2),
-                  rclcpp::Parameter("joints", std::vector<std::string>({"shoulder_pan_joint",
-                                                                        "shoulder_lift_joint",
-                                                                        "elbow_joint",
-                                                                        "wrist_1_joint",
-                                                                        "wrist_2_joint",
-                                                                        "wrist_3_joint"})),
-              rclcpp::Parameter("command_interfaces", std::vector<std::string>({"position"})),
-              rclcpp::Parameter("state_interfaces", std::vector<std::string>({"position", "velocity"})),
-              rclcpp::Parameter("ft_sensor_name", "tcp_fts_sensor"),
-              rclcpp::Parameter("joint_limiter_type", "joint_limits/SimpleJointLimiter"),
-              rclcpp::Parameter("use_joint_commands_as_input", true),
-              rclcpp::Parameter("action_monitor_rate", 20.0),
-              rclcpp::Parameter("allow_partial_joints_goal", allow_partial_joints_goal_),
-              rclcpp::Parameter("allow_integration_in_goal_trajectories", allow_integration_in_goal_trajectories_),
-              rclcpp::Parameter("constraints.stopped_velocity_tolerance", 0.01),
-              rclcpp::Parameter("constraints.goal_time", 0.1),
-              });
-      // Check to see if they were set.
-      for (auto & result : set_parameters_results) {
-          if (!result.successful) {
-              RCLCPP_ERROR(get_node()->get_logger(), "Failed to set parameter: %s", result.reason.c_str());
-          }
-      }
+//      using namespace std::chrono_literals;
+//      auto parameters_client = std::make_shared<rclcpp::SyncParametersClient>(get_node());
+//      while (!parameters_client->wait_for_service(1s)) {
+//          if (!rclcpp::ok()) {
+//              RCLCPP_ERROR(get_node()->get_logger(), "Interrupted while waiting for the service. Exiting.");
+//              rclcpp::shutdown();
+//          }
+//          RCLCPP_INFO(get_node()->get_logger(), "service not available, waiting again...");
+//      }
+//
+//      allow_integration_in_goal_trajectories_ = true;
+//
+//      // Set several different types of parameters.
+//      auto set_parameters_results = parameters_client->set_parameters(
+//              {
+//                  rclcpp::Parameter("foo", 2),
+//                  rclcpp::Parameter("joints", std::vector<std::string>({"shoulder_pan_joint",
+//                                                                        "shoulder_lift_joint",
+//                                                                        "elbow_joint",
+//                                                                        "wrist_1_joint",
+//                                                                        "wrist_2_joint",
+//                                                                        "wrist_3_joint"})),
+//              rclcpp::Parameter("command_interfaces", std::vector<std::string>({"position"})),
+//              rclcpp::Parameter("state_interfaces", std::vector<std::string>({"position", "velocity"})),
+//              rclcpp::Parameter("ft_sensor_name", "tcp_fts_sensor"),
+//              rclcpp::Parameter("joint_limiter_type", "joint_limits/SimpleJointLimiter"),
+//              rclcpp::Parameter("use_joint_commands_as_input", true),
+//              rclcpp::Parameter("action_monitor_rate", 20.0),
+//              rclcpp::Parameter("allow_partial_joints_goal", allow_partial_joints_goal_),
+//              rclcpp::Parameter("allow_integration_in_goal_trajectories", allow_integration_in_goal_trajectories_),
+//              rclcpp::Parameter("constraints.stopped_velocity_tolerance", 0.01),
+//              rclcpp::Parameter("constraints.goal_time", 0.1),
+//              });
+//      // Check to see if they were set.
+//      for (auto & result : set_parameters_results) {
+//          if (!result.successful) {
+//              RCLCPP_ERROR(get_node()->get_logger(), "Failed to set parameter: %s", result.reason.c_str());
+//          }
+//      }
 
 
   } catch (const std::exception & e) {
@@ -181,14 +184,14 @@ CallbackReturn AdmittanceController::on_configure(
     return CallbackReturn::ERROR;
   }
 
-  if (!admittance_->filter_chain_->configure("input_wrench_filter_chain",
-    get_node()->get_node_logging_interface(), get_node()->get_node_parameters_interface()))
-  {
-    RCLCPP_ERROR(get_node()->get_logger(),
-                 "Could not configure sensor filter chain, please check if the "
-                 "parameters are provided correctly.");
-    return CallbackReturn::ERROR;
-  }
+//  if (!admittance_->filter_chain_->configure("input_wrench_filter_chain",
+//    get_node()->get_node_logging_interface(), get_node()->get_node_parameters_interface()))
+//  {
+//    RCLCPP_ERROR(get_node()->get_logger(),
+//                 "Could not configure sensor filter chain, please check if the "
+//                 "parameters are provided correctly.");
+//    return CallbackReturn::ERROR;
+//  }
 
   // Check if only allowed interface types are used and initialize storage to avoid memory
   // allocation during activation
@@ -254,20 +257,20 @@ CallbackReturn AdmittanceController::on_configure(
   auto num_joints = joint_names_.size();
 
   // Initialize joint limits
-  if (!joint_limiter_type_.empty())
-  {
-    RCLCPP_INFO(
-      get_node()->get_logger(), "Using joint limiter plugin: '%s'", joint_limiter_type_.c_str());
-    joint_limiter_loader_ = std::make_shared<pluginlib::ClassLoader<JointLimiter>>(
-      "joint_limits", "joint_limits::JointLimiterInterface<joint_limits::JointLimits>");
-    joint_limiter_ = std::unique_ptr<JointLimiter>(
-      joint_limiter_loader_->createUnmanagedInstance(joint_limiter_type_));
-//    joint_limiter_->init(joint_names_, get_node());
-  }
-  else
-  {
-    RCLCPP_INFO(get_node()->get_logger(), "Not using joint limiter plugin as none defined.");
-  }
+//  if (!joint_limiter_type_.empty())
+//  {
+//    RCLCPP_INFO(
+//      get_node()->get_logger(), "Using joint limiter plugin: '%s'", joint_limiter_type_.c_str());
+//    joint_limiter_loader_ = std::make_shared<pluginlib::ClassLoader<JointLimiter>>(
+//      "joint_limits", "joint_limits::JointLimiterInterface<joint_limits::JointLimits>");
+//    joint_limiter_ = std::unique_ptr<JointLimiter>(
+//      joint_limiter_loader_->createUnmanagedInstance(joint_limiter_type_));
+////    joint_limiter_->init(joint_names_, get_node());
+//  }
+//  else
+//  {
+//    RCLCPP_INFO(get_node()->get_logger(), "Not using joint limiter plugin as none defined.");
+//  }
 
   // subscriber callback
   // non realtime
@@ -302,6 +305,7 @@ CallbackReturn AdmittanceController::on_configure(
   s_publisher_ = get_node()->create_publisher<ControllerStateMsg>(
     "~/state", rclcpp::SystemDefaultsQoS());
   state_publisher_ = std::make_unique<ControllerStatePublisher>(s_publisher_);
+
 
   // Initialize state message
   state_publisher_->lock();
