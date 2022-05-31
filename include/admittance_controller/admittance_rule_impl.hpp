@@ -224,6 +224,17 @@ controller_interface::return_type AdmittanceRule::update(
   const rclcpp::Duration & period,
   trajectory_msgs::msg::JointTrajectoryPoint & desired_joint_state)
 {
+    auto num_joints_ = current_joint_state.positions.size();
+    if (desired_joint_state.positions.empty())
+    {
+        desired_joint_state.positions.assign(num_joints_, 0.0);
+    }
+    else
+    {
+        desired_joint_state.positions = reference_joint_state.positions;
+    }
+    desired_joint_state.velocities.assign(num_joints_, 0.0);
+    desired_joint_state.accelerations.assign(num_joints_, 0.0);
   reference_joint_deltas_vec_.assign(reference_joint_deltas_vec_.size(), 0.0);
 
   // Calculate joint_deltas only when feed-forward is needed, i.e., trajectory is valid

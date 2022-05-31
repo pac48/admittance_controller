@@ -57,6 +57,7 @@ bool RLKinematics::initialize(std::shared_ptr<rclcpp_lifecycle::LifecycleNode> n
 
     all_jacobians_ = rl::math::Matrix(6*numEE, numDof);
     jacobian_ = rl::math::Matrix(6, numDof);
+    pseudo_inverse_ = rl::math::Matrix(numDof, 6);
 
 }
 
@@ -108,12 +109,13 @@ bool RLKinematics::convert_cartesian_deltas_to_joint_deltas(
   // Multiply with the pseudoinverse to get delta_theta
   calculateJacobian();
   // TODO(andyz): consider what Olivier suggested: https://github.com/ros-controls/ros2_controllers/pull/173#discussion_r627936628
-  Eigen::JacobiSVD<Eigen::MatrixXd> svd = Eigen::JacobiSVD<Eigen::MatrixXd>(jacobian_, Eigen::ComputeThinU | Eigen::ComputeThinV);
-  matrix_s_ = svd.singularValues().asDiagonal();
-  pseudo_inverse_ = svd.matrixV() * matrix_s_.inverse() * svd.matrixU().transpose();
-
+//  Eigen::JacobiSVD<Eigen::MatrixXd> svd = Eigen::JacobiSVD<Eigen::MatrixXd>(jacobian_, Eigen::ComputeThinU | Eigen::ComputeThinV);
+//  matrix_s_ = svd.singularValues().asDiagonal();
+//  pseudo_inverse_ = svd.matrixV() * matrix_s_.inverse() * svd.matrixU().transpose();
+//
+model.calculateJacobianInverse(jacobian_, pseudo_inverse_, .001f, true);
   Eigen::VectorXd  delta_theta = pseudo_inverse_ * delta_x;
-  // delta_theta *= velocityScalingFactorForSingularity(delta_x, svd, pseudo_inverse_);
+//   delta_theta *= velocityScalingFactorForSingularity(delta_x, svd, pseudo_inverse_);
 
   std::vector<double> delta_theta_v(&delta_theta[0], delta_theta.data() + delta_theta.cols() * delta_theta.rows());
   delta_theta_vec = delta_theta_v;

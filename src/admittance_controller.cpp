@@ -127,13 +127,15 @@ namespace admittance_controller
         // controller manager will populate the state_interfaces_ vector field via the ControllerInterfaceBase.
         // Note: state_interface_types_ contains position, velocity, acceleration; effort is not supported
 
-        std::vector<std::string> state_interfaces_config_names = force_torque_sensor_->get_state_interface_names();
+        std::vector<std::string> state_interfaces_config_names; //= force_torque_sensor_->get_state_interface_names();
 
         for (const auto & interface : state_interface_types_) {
             for (const auto & joint : joint_names_) {
                 state_interfaces_config_names.push_back(joint + "/" + interface);
             }
         }
+        auto ft_interfaces = force_torque_sensor_->get_state_interface_names();
+        state_interfaces_config_names.insert(state_interfaces_config_names.end(), ft_interfaces.begin(), ft_interfaces.end() );
 
         return {controller_interface::interface_configuration_type::INDIVIDUAL,
                 state_interfaces_config_names};
@@ -155,55 +157,78 @@ namespace admittance_controller
         // Realtime constraints are required in this function
 
         // check controller state
-        if (get_state().id() == lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE)
-        {
+        if (get_state().id() == lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
             return controller_interface::return_type::OK;
         }
 
         // sense: get all controller inputs
         auto current_external_msg = traj_external_point_ptr_->get_trajectory_msg();
         traj_command_msg = *rtBuffers.input_traj_command.readFromRT();
-        if (current_external_msg != traj_command_msg){
+        if (current_external_msg != traj_command_msg) {
             // this is a hack
-            std::vector<std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>> tmp = {joint_position_command_interface_};
+            std::vector<std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>> tmp = {
+                    joint_position_command_interface_};
             fill_partial_goal(traj_command_msg, joint_names_, tmp);
             sort_to_local_joint_order(traj_command_msg, joint_names_);
             traj_external_point_ptr_->update(traj_command_msg);
-       }
-        if (check_and_assign_new_message(rtBuffers.input_pose_command_, pose_command_msg)){
         }
-        if (check_and_assign_new_message(rtBuffers.input_wrench_command_, wrench_msg)){
+        if (check_and_assign_new_message(rtBuffers.input_pose_command_, pose_command_msg)) {
         }
-        state_current.time_from_start.set__sec(0);
-//        resize_joint_trajectory_point(state, joint_names_.size(), !joint_velocity_state_interface_.empty(), !joint_acceleration_state_interface_.empty());
-        RCLCPP_INFO(get_node()->get_logger(), ("position size: "+ std::to_string((double )state_current.positions.size())).c_str());
-        RCLCPP_INFO(get_node()->get_logger(), ("velocity size: "+ std::to_string((double )state_current.velocities.size())).c_str());
+        if (check_and_assign_new_message(rtBuffers.input_wrench_command_, wrench_msg)) {
+        }
 
-read_state_from_hardware(state_current);
         geometry_msgs::msg::Wrench ft_values;
         force_torque_sensor_->get_values_as_message(ft_values);
+        read_state_from_hardware(state_current);
         state_current.time_from_start.set__sec(0);
+
+        // if values are not available, assume that the current state is the last commanded
+        if (state_current.positions.empty()) {state_current.positions = last_commanded_state_.positions;}
+        if (state_current.velocities.empty()) state_current.velocities = last_commanded_state_.velocities;
+        if (state_current.accelerations.empty()) state_current.accelerations = last_commanded_state_.accelerations;
+
         // find segment for current timestamp. In the case that the trajectory sample is invalid, state_reference
         // will be set to empty.
         std::vector<trajectory_msgs::msg::JointTrajectoryPoint>::const_iterator start_segment_itr, end_segment_itr;
         bool valid_trajectory_point = false;
+        bool before_last_point = false;
         if (have_trajectory())
         { // do not sample trajectory if one does not exist
             valid_trajectory_point =
                     sample_trajectory(time, state_reference, start_segment_itr, end_segment_itr);
+            before_last_point = is_before_last_point(end_segment_itr);
         }
-        if (valid_trajectory_point){
-            last_state_reference_ = state_reference;
-        } else{
+
+        if (!valid_trajectory_point || !have_trajectory()){
+            // if there is no current trajectory, then the reference should be the current state
             state_reference = last_state_reference_;
+            last_state_reference_ = state_current;
         }
+//        last_state_reference_ = state_reference;
+
+
+            RCLCPP_INFO(
+                    get_node()->get_logger(), "state_reference: [%f, %f, %f, %f, %f, %f,... ]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2], state_reference.positions[3],state_reference.positions[4],state_reference.positions[5]);
+        RCLCPP_INFO(
+                get_node()->get_logger(), "state_current pos: [%f, %f, %f, %f, %f, %f,... ]", state_current.positions[0],state_current.positions[1],state_current.positions[2],state_current.positions[3],state_current.positions[4],state_current.positions[5]);
+        RCLCPP_INFO(
+                get_node()->get_logger(), "state_current vel: [%f, %f, %f, %f, %f, %f,... ]", state_current.velocities[0],state_current.velocities[1],state_current.velocities[2],state_current.velocities[3],state_current.velocities[4],state_current.velocities[5]);
+
+
+
         // save state reference before applying admittance rule
         pre_admittance_point.points[0] = state_reference;
 
         // command: determine desired state from trajectory or pose goal
         // and apply admittance controller
-
         admittance_->update(state_current, ft_values, state_reference, period, state_desired);
+
+        RCLCPP_INFO(
+                get_node()->get_logger(), "state_desired pos: [%f, %f, %f, %f, %f, %f,... ]", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2], state_desired.positions[3],state_desired.positions[4],state_desired.positions[5]);
+
+        RCLCPP_INFO(
+                get_node()->get_logger(), "state_desired vel: [%f, %f, %f, %f, %f, %f,... ]", state_desired.velocities[0],state_desired.velocities[1],state_desired.velocities[2], state_desired.velocities[3],state_desired.velocities[4],state_desired.velocities[5]);
+
 
         // Apply joint limiter
         if (joint_limiter_) joint_limiter_->enforce_limits(period);
@@ -211,21 +236,47 @@ read_state_from_hardware(state_current);
         // write calculated values to joint interfaces
         // at goal time (end of trajectory), check goal reference error and send fail to
         // action server out of tolerance
-        for (auto i = 0ul; i < joint_position_state_interface_.size(); i++) {
-              joint_position_command_interface_[i].get().set_value(state_desired.positions[i]);
+        if (!open_loop_control_) {
+            for (auto i = 0ul; i < joint_position_state_interface_.size(); i++) {
+                joint_position_command_interface_[i].get().set_value(state_desired.positions[i]);
+                last_commanded_state_.positions[i] = state_desired.positions[i];
+            }
         }
-        for (auto i = 0ul; i < joint_position_state_interface_.size(); i++) {
+        for (auto i = 0ul; i < joint_velocity_command_interface_.size(); i++) {
             joint_velocity_command_interface_[i].get().set_value(state_desired.velocities[i]);
+            if (open_loop_control_){
+                double dt = 1.0/60; // hack!
+                last_commanded_state_.positions[i] += state_desired.velocities[i]*dt; // hack!
+                joint_position_command_interface_[i].get().set_value(last_commanded_state_.positions[i]); // hack!
+            }
+            last_commanded_state_.velocities[i] = state_desired.velocities[i];
         }
-        for (auto i = 0ul; i < joint_position_state_interface_.size(); i++) {
+        for (auto i = 0ul; i < joint_acceleration_command_interface_.size(); i++) {
             joint_acceleration_command_interface_[i].get().set_value(state_desired.accelerations[i]);
+            last_commanded_state_.accelerations[i] = state_desired.accelerations[i];
         }
-
+        // Compute state_error
+        auto compute_error_for_joint = [&](
+                trajectory_msgs::msg::JointTrajectoryPoint & error, int index,
+                const trajectory_msgs::msg::JointTrajectoryPoint & current,
+                const trajectory_msgs::msg::JointTrajectoryPoint & desired) {
+            // error defined as the difference between current and desired
+            error.positions[index] =
+                    angles::shortest_angular_distance(current.positions[index], desired.positions[index]);
+            if (!joint_velocity_command_interface_.empty() && !joint_velocity_state_interface_.empty())
+            {
+                error.velocities[index] = desired.velocities[index] - current.velocities[index];
+            }
+            if (!joint_acceleration_command_interface_.empty() && !joint_acceleration_state_interface_.empty())
+            {
+                error.accelerations[index] = desired.accelerations[index] - current.accelerations[index];
+            }
+        };
         // abort if error violates tolerances
         bool abort = false;
         bool outside_goal_state_tolerance = false;
-        bool before_last_point = is_before_last_point(end_segment_itr);
         for (auto index = 0ul; index < num_joints_; ++index){
+            compute_error_for_joint(state_error, index, state_current, state_desired);
             abort |= before_last_point &&
                     !check_state_tolerance_per_joint(state_error, index, default_tolerances_.state_tolerance[index], false);
             outside_goal_state_tolerance |= !before_last_point && !check_state_tolerance_per_joint(
@@ -236,8 +287,6 @@ read_state_from_hardware(state_current);
                 default_tolerances_.goal_time_tolerance, time, joint_names_, state_current,
                 state_desired, state_error, start_segment_itr);
 
-        // store last command for open loop
-        last_commanded_state_ = state_desired;
         // Publish controller state
         rtBuffers.state_publisher_->lock();
         rtBuffers.state_publisher_->msg_.input_joint_command = pre_admittance_point;
@@ -261,6 +310,7 @@ read_state_from_hardware(state_current);
                 get_bool_param_and_error_if_empty(allow_partial_joints_goal_, "allow_partial_joints_goal") ||
                 get_bool_param_and_error_if_empty(allow_integration_in_goal_trajectories_, "allow_integration_in_goal_trajectories") ||
                 get_double_param_and_error_if_empty(action_monitor_rate, "action_monitor_rate") ||
+                get_bool_param_and_error_if_empty(open_loop_control_, "open_loop_control") ||
                 !admittance_->parameters_.get_parameters()
                 )
         {
@@ -417,11 +467,13 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
                 (*joint_command_interfaces_[i]).push_back(command_interfaces_[i * num_joints_ + j]);
             }
         }
+
         // allocate memory for control loop data
         resize_joint_trajectory_point(last_commanded_state_, joint_names_.size(), !joint_velocity_command_interface_.empty(), !joint_acceleration_command_interface_.empty());
         resize_joint_trajectory_point(state_reference, joint_names_.size(), !joint_velocity_state_interface_.empty(), !joint_acceleration_state_interface_.empty());
         resize_joint_trajectory_point(state_current, joint_names_.size(), !joint_velocity_state_interface_.empty(), !joint_acceleration_state_interface_.empty());
         resize_joint_trajectory_point(state_desired, joint_names_.size(), !joint_velocity_state_interface_.empty(), !joint_acceleration_state_interface_.empty());
+        resize_joint_trajectory_point(state_desired, joint_names_.size(), true, true);
         resize_joint_trajectory_point(state_error, joint_names_.size(), !joint_velocity_state_interface_.empty(), !joint_acceleration_state_interface_.empty());
         pre_admittance_point.points.push_back(last_commanded_state_);
         RCLCPP_INFO(get_node()->get_logger(), ("vel int size is  int: "+ std::to_string(joint_velocity_state_interface_.size())+"\n").c_str());
@@ -455,8 +507,31 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
 
         // Handle restart of controller by reading last_commanded_state_ from commands if
         // those are not nan
+        read_state_from_hardware(last_state_reference_);
         read_state_from_command_interfaces(last_commanded_state_);
-        read_state_from_hardware(state_current);
+
+        RCLCPP_INFO(
+                get_node()->get_logger(), "last_commanded_state_: [%f, %f, %f, %f, %f, %f,... ]", last_commanded_state_.positions[0],last_commanded_state_.positions[1],last_commanded_state_.positions[2], last_commanded_state_.positions[3],last_commanded_state_.positions[4],last_commanded_state_.positions[5]);
+
+        RCLCPP_INFO(
+                get_node()->get_logger(), "last_state_reference_: [%f, %f, %f, %f, %f, %f,... ]", last_state_reference_.positions[0],last_state_reference_.positions[1],last_state_reference_.positions[2], last_state_reference_.positions[3],last_state_reference_.positions[4],last_state_reference_.positions[5]);
+
+        // if values are empty, the command interface has not be written to yet, so set empty command
+        if (last_state_reference_.positions.empty()) last_state_reference_.positions.assign(num_joints_, 0.0);
+        if (last_state_reference_.velocities.empty()) last_state_reference_.velocities.assign(num_joints_, 0.0);
+        if (last_state_reference_.accelerations.empty()) last_state_reference_.accelerations.assign(num_joints_, 0.0);
+
+
+        // if values are empty, the state interface has not been populated yet, so set to last commanded state
+        if (last_commanded_state_.positions.empty()) last_commanded_state_.positions = last_state_reference_.positions;
+        if (last_commanded_state_.velocities.empty()) last_commanded_state_.velocities = last_state_reference_.velocities;
+        if (last_commanded_state_.accelerations.empty()) last_commanded_state_.accelerations = last_state_reference_.accelerations;
+
+        // if in open loop mode, the position interfaces should be ignored even if they exist
+        if (open_loop_control_){
+//            joint_position_command_interface_.clear();
+            joint_position_state_interface_.clear();
+        }
 
         create_action_server(
                 get_node(), this, action_monitor_rate, allow_partial_joints_goal_, joint_names_,
@@ -493,31 +568,57 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
     void AdmittanceController::read_state_from_hardware(
             trajectory_msgs::msg::JointTrajectoryPoint & state)
     {
-        // Make empty so the property is ignored during interpolation
-        state.positions.clear();
-        state.velocities.clear();
-        state.accelerations.clear();
+        // Fill fields of state argument from hardware state interfaces. If the hardware does not exist,
+        // the values are nan, that corresponding state field will be set to empty. If running in open loop
+        // control, all states fields will be empty
+//
+//        if (open_loop_control_){
+//            state.positions.clear();
+//            state.velocities.clear();
+//            state.accelerations.clear();
+//            return;
+//        }
+
+        state.positions.resize(joint_position_state_interface_.size());
+        state.velocities.resize(joint_velocity_state_interface_.size());
+        state.accelerations.resize(joint_acceleration_state_interface_.size());
 
         // fill state message with values from hardware state interfaces
         for (auto i = 0ul; i < joint_position_state_interface_.size(); i++) {
             state.positions[i]  = joint_position_state_interface_[i].get().get_value();
+            if (std::isnan(state.positions[i])){
+                state.positions.clear();
+                break;
+            }
         }
         for (auto i = 0ul; i < joint_velocity_state_interface_.size(); i++) {
             state.velocities[i]  = joint_velocity_state_interface_[i].get().get_value();
+            if (std::isnan(state.velocities[i])){
+                state.velocities.clear();
+                break;
+            }
         }
         for (auto i = 0ul; i < joint_acceleration_state_interface_.size(); i++) {
             state.accelerations[i]  = joint_acceleration_state_interface_[i].get().get_value();
+            if (std::isnan(state.accelerations[i])){
+                state.positions.clear();
+                break;
+            }
         }
 
+        RCLCPP_INFO(
+                get_node()->get_logger(), "hardware state read size [%f]", (double )state.positions.size());
     }
 
     void AdmittanceController::read_state_from_command_interfaces(
             trajectory_msgs::msg::JointTrajectoryPoint & output_state)
     {
+        // Fill fields of state argument from hardware command interfaces. If the interface does not exist or
+        // the values are nan, that corresponding state field will be set to empty
 
-        output_state.positions.clear();
-        output_state.velocities.clear();
-        output_state.accelerations.clear();
+        output_state.positions.resize(joint_position_command_interface_.size(), 0.0);
+        output_state.velocities.resize(joint_velocity_command_interface_.size(), 0.0);
+        output_state.accelerations.resize(joint_acceleration_command_interface_.size(), 0.0);
 
         // fill state message with values from hardware command interfaces
         for (auto i = 0ul; i < joint_position_command_interface_.size(); i++) {

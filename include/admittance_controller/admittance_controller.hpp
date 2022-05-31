@@ -128,6 +128,7 @@ protected:
     bool allow_partial_joints_goal_{};
     bool allow_integration_in_goal_trajectories_{};
     double action_monitor_rate{};
+    bool open_loop_control_;
     // ROS subscribers
     rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr input_joint_command_subscriber_ = nullptr;
     rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr input_wrench_command_subscriber_ = nullptr;
