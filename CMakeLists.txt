@@ -39,8 +39,11 @@ find_package(RL REQUIRED)
 
 # The admittance controller
 add_library(admittance_controller SHARED
-  src/admittance_controller.cpp
+        src/admittance_controller.cpp
 )
+#add_library(my_admittance_controller SHARED
+#        src/admittance_controller.cpp
+#        )
 add_library(moveit_differential_ik_plugin SHARED # this is broken currently
         src/moveit_kinematics.cpp
         )
@@ -53,6 +56,11 @@ target_include_directories(
   PRIVATE
   include
 )
+#target_include_directories(
+#        my_admittance_controller
+#        PRIVATE
+#        include
+#)
 target_include_directories(
         moveit_differential_ik_plugin
         PRIVATE
@@ -67,6 +75,9 @@ target_include_directories(
 target_link_libraries(
   admittance_controller
 )
+#target_link_libraries(
+#        my_admittance_controller
+#)
 target_link_libraries(
         moveit_differential_ik_plugin
 )
@@ -98,6 +109,29 @@ ament_target_dependencies(
   tf2_ros
         angles
 )
+#ament_target_dependencies(
+#        my_admittance_controller
+#        backward_ros
+#        control_msgs
+#        control_toolbox
+#        controller_interface
+#        ik_interface
+#        ${Eigen_LIBRARIES}
+#        filters
+#        geometry_msgs
+#        hardware_interface
+#        joint_limits_interface
+#        joint_trajectory_controller
+#        pluginlib
+#        rclcpp
+#        rclcpp_lifecycle
+#        realtime_tools
+#        tf2
+#        tf2_eigen
+#        tf2_geometry_msgs
+#        tf2_ros
+#        angles
+#)
 ament_target_dependencies(
         moveit_differential_ik_plugin
         rcutils
@@ -137,6 +171,7 @@ ament_target_dependencies(
 # Causes the visibility macros to use dllexport rather than dllimport,
 # which is appropriate when building the dll but not consuming it.
 target_compile_definitions(admittance_controller PRIVATE "ADMITTANCE_CONTROLLER_BUILDING_DLL")
+#target_compile_definitions(my_admittance_controller PRIVATE "MY_ADMITTANCE_CONTROLLER_BUILDING_DLL")
 target_compile_definitions(moveit_differential_ik_plugin PRIVATE "IK_BUILDING_DLL")
 target_compile_definitions(rl_differential_ik_plugin PRIVATE "RL_IK_BUILDING_DLL")
 
@@ -152,6 +187,12 @@ install(
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
 )
+#install(
+#        TARGETS my_admittance_controller
+#        RUNTIME DESTINATION bin
+#        ARCHIVE DESTINATION lib
+#        LIBRARY DESTINATION lib
+#)
 install(
         TARGETS moveit_differential_ik_plugin
         RUNTIME DESTINATION bin
@@ -205,6 +246,9 @@ ament_export_include_directories(
 ament_export_libraries(
   admittance_controller
 )
+#ament_export_libraries(
+#        my_admittance_controller
+#)
 ament_export_libraries(
         moveit_differential_ik_plugin
 )
