@@ -204,17 +204,6 @@ namespace admittance_controller
             state_reference = last_state_reference_;
             last_state_reference_ = state_current;
         }
-//        last_state_reference_ = state_reference;
-
-
-            RCLCPP_INFO(
-                    get_node()->get_logger(), "state_reference: [%f, %f, %f, %f, %f, %f,... ]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2], state_reference.positions[3],state_reference.positions[4],state_reference.positions[5]);
-        RCLCPP_INFO(
-                get_node()->get_logger(), "state_current pos: [%f, %f, %f, %f, %f, %f,... ]", state_current.positions[0],state_current.positions[1],state_current.positions[2],state_current.positions[3],state_current.positions[4],state_current.positions[5]);
-        RCLCPP_INFO(
-                get_node()->get_logger(), "state_current vel: [%f, %f, %f, %f, %f, %f,... ]", state_current.velocities[0],state_current.velocities[1],state_current.velocities[2],state_current.velocities[3],state_current.velocities[4],state_current.velocities[5]);
-
-
 
         // save state reference before applying admittance rule
         pre_admittance_point.points[0] = state_reference;
@@ -223,28 +212,19 @@ namespace admittance_controller
         // and apply admittance controller
         admittance_->update(state_current, ft_values, state_reference, period, state_desired);
 
-        RCLCPP_INFO(
-                get_node()->get_logger(), "state_desired pos: [%f, %f, %f, %f, %f, %f,... ]", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2], state_desired.positions[3],state_desired.positions[4],state_desired.positions[5]);
-
-        RCLCPP_INFO(
-                get_node()->get_logger(), "state_desired vel: [%f, %f, %f, %f, %f, %f,... ]", state_desired.velocities[0],state_desired.velocities[1],state_desired.velocities[2], state_desired.velocities[3],state_desired.velocities[4],state_desired.velocities[5]);
-
-
         // Apply joint limiter
-        if (joint_limiter_) joint_limiter_->enforce_limits(period);
+//        if (joint_limiter_) joint_limiter_->enforce_limits(period);
 
         // write calculated values to joint interfaces
         // at goal time (end of trajectory), check goal reference error and send fail to
         // action server out of tolerance
-        if (!open_loop_control_) {
-            for (auto i = 0ul; i < joint_position_state_interface_.size(); i++) {
-                joint_position_command_interface_[i].get().set_value(state_desired.positions[i]);
-                last_commanded_state_.positions[i] = state_desired.positions[i];
-            }
+        for (auto i = 0ul; i < joint_position_command_interface_.size(); i++) {
+            joint_position_command_interface_[i].get().set_value(state_desired.positions[i]);
+            last_commanded_state_.positions[i] = state_desired.positions[i];
         }
         for (auto i = 0ul; i < joint_velocity_command_interface_.size(); i++) {
             joint_velocity_command_interface_[i].get().set_value(state_desired.velocities[i]);
-            if (open_loop_control_){
+            if (open_loop_control_ && joint_position_command_interface_.empty()){
                 double dt = 1.0/60; // hack!
                 last_commanded_state_.positions[i] += state_desired.velocities[i]*dt; // hack!
                 joint_position_command_interface_[i].get().set_value(last_commanded_state_.positions[i]); // hack!
@@ -386,6 +366,7 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
         // assign state interfaces
         num_joints_ = joint_names_.size();
+        jointHandles.resize(num_joints_);
 
         // Initialize state message
         rtBuffers.state_publisher_->lock();
@@ -424,18 +405,9 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
 
         // TODO: this causes the error:
        //[ERROR]  error: package 'joint_limits' not found, searching:
- //       // Initialize joint limits
-//          if (!joint_limiter_type_.empty())
-//          {
-//            RCLCPP_INFO(
-//              get_node()->get_logger(), "Using joint limiter plugin: '%s'", joint_limiter_type_.c_str());
-//            joint_limiter_loader_ = std::make_shared<pluginlib::ClassLoader<JointLimiter>>(
-//              "joint_limits", "joint_limits::JointLimiterInterface<joint_limits::JointLimits>");
-//            joint_limiter_ = std::unique_ptr<JointLimiter>(
-//              joint_limiter_loader_->createUnmanagedInstance(joint_limiter_type_));
-//          } else{
-//            RCLCPP_INFO(get_node()->get_logger(), "Not using joint limiter plugin as none defined.");
-//          }
+        // Initialize joint limits
+
+//
 
         // configure admittance rule
         admittance_->configure(get_node());
@@ -446,6 +418,14 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         return LifecycleNodeInterface::on_configure(previous_state);
     }
 
+    transmission_interface::JointHandle createJointHandle(const hardware_interface::LoanedCommandInterface & interface, double* val){
+        return transmission_interface::JointHandle(interface.get_name(), interface.get_interface_name(), val);
+    }
+    transmission_interface::JointHandle createJointHandle(const hardware_interface::LoanedStateInterface& interface){
+        return transmission_interface::JointHandle(interface.get_name(), interface.get_interface_name(), nullptr);
+    } // interface.get_value())
+
+
     CallbackReturn AdmittanceController::on_activate(const rclcpp_lifecycle::State &previous_state) {
         // on_activate is called when the lifecycle activates. Realtime constraints are required.
         controller_is_active_ = true;
@@ -455,7 +435,7 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
                    &joint_acceleration_state_interface_};
         for (auto i = 0ul; i < state_interface_types_.size(); i++) {
             for (auto j = 0ul; j < joint_names_.size(); j++) {
-                (*joint_state_interfaces_[i]).push_back(state_interfaces_[i * num_joints_ + j]);
+                (*joint_state_interfaces_[i]).emplace_back(state_interfaces_[i * num_joints_ + j]);
             }
         }
         // assign command interfaces
@@ -464,9 +444,20 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
                    &joint_acceleration_command_interface_, &joint_effort_command_interface_};
         for (auto i = 0ul; i < command_interface_types_.size(); i++) {
             for (auto j = 0ul; j < joint_names_.size(); j++) {
-                (*joint_command_interfaces_[i]).push_back(command_interfaces_[i * num_joints_ + j]);
+                (*joint_command_interfaces_[i]).emplace_back(command_interfaces_[i * num_joints_ + j]);
             }
         }
+
+        // create joint handle objects
+//        for (int i; i < joint_position_command_interface_.size(); i++){
+//            tmpHandles.push_back(createJointHandle(joint_position_state_interface_[i]));
+//            tmpHandles.push_back(createJointHandle(joint_velocity_command_interface_[i],
+//                                                   joint_velocity_command_interface_[i].get().get_value()));
+//            joint_limits_interface::JointLimits jl;// = {0.0,0.0};
+//            jointHandles[i] = JointLimiter(tmpHandles[tmpHandles.size()-2],tmpHandles[tmpHandles.size()-1], jl);
+//
+//        }
+
 
         // allocate memory for control loop data
         resize_joint_trajectory_point(last_commanded_state_, joint_names_.size(), !joint_velocity_command_interface_.empty(), !joint_acceleration_command_interface_.empty());
@@ -476,7 +467,6 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         resize_joint_trajectory_point(state_desired, joint_names_.size(), true, true);
         resize_joint_trajectory_point(state_error, joint_names_.size(), !joint_velocity_state_interface_.empty(), !joint_acceleration_state_interface_.empty());
         pre_admittance_point.points.push_back(last_commanded_state_);
-        RCLCPP_INFO(get_node()->get_logger(), ("vel int size is  int: "+ std::to_string(joint_velocity_state_interface_.size())+"\n").c_str());
 
         // Store 'home' pose
         traj_msg_home_ptr_ = std::make_shared<trajectory_msgs::msg::JointTrajectory>();
@@ -505,32 +495,25 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         // Initialize Admittance Rule from current states
         admittance_->reset();
 
-        // Handle restart of controller by reading last_commanded_state_ from commands if
-        // those are not nan
+        // Handle state after restart or inittial startup
         read_state_from_hardware(last_state_reference_);
         read_state_from_command_interfaces(last_commanded_state_);
-
-        RCLCPP_INFO(
-                get_node()->get_logger(), "last_commanded_state_: [%f, %f, %f, %f, %f, %f,... ]", last_commanded_state_.positions[0],last_commanded_state_.positions[1],last_commanded_state_.positions[2], last_commanded_state_.positions[3],last_commanded_state_.positions[4],last_commanded_state_.positions[5]);
-
-        RCLCPP_INFO(
-                get_node()->get_logger(), "last_state_reference_: [%f, %f, %f, %f, %f, %f,... ]", last_state_reference_.positions[0],last_state_reference_.positions[1],last_state_reference_.positions[2], last_state_reference_.positions[3],last_state_reference_.positions[4],last_state_reference_.positions[5]);
-
-        // if values are empty, the command interface has not be written to yet, so set empty command
+        // if last_state_reference_ is empty, we have no information about the state, assume zero
         if (last_state_reference_.positions.empty()) last_state_reference_.positions.assign(num_joints_, 0.0);
         if (last_state_reference_.velocities.empty()) last_state_reference_.velocities.assign(num_joints_, 0.0);
         if (last_state_reference_.accelerations.empty()) last_state_reference_.accelerations.assign(num_joints_, 0.0);
-
-
-        // if values are empty, the state interface has not been populated yet, so set to last commanded state
+        // if last_commanded_state_ is empty, then our safest option is to set it to the current state
         if (last_commanded_state_.positions.empty()) last_commanded_state_.positions = last_state_reference_.positions;
         if (last_commanded_state_.velocities.empty()) last_commanded_state_.velocities = last_state_reference_.velocities;
         if (last_commanded_state_.accelerations.empty()) last_commanded_state_.accelerations = last_state_reference_.accelerations;
-
-        // if in open loop mode, the position interfaces should be ignored even if they exist
+        // if in open loop mode, the position interface should be ignored even if it exist
         if (open_loop_control_){
-//            joint_position_command_interface_.clear();
             joint_position_state_interface_.clear();
+        }
+        // if there are no state position interfaces, then force open loop control
+        if (joint_position_state_interface_.empty()){
+            open_loop_control_ = true;
+            RCLCPP_INFO(get_node()->get_logger(), "control loop control set to true because no position state interface was provided. ");
         }
 
         create_action_server(
@@ -563,21 +546,12 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         return CallbackReturn::SUCCESS;
     }
 
-
-
     void AdmittanceController::read_state_from_hardware(
             trajectory_msgs::msg::JointTrajectoryPoint & state)
     {
         // Fill fields of state argument from hardware state interfaces. If the hardware does not exist,
         // the values are nan, that corresponding state field will be set to empty. If running in open loop
         // control, all states fields will be empty
-//
-//        if (open_loop_control_){
-//            state.positions.clear();
-//            state.velocities.clear();
-//            state.accelerations.clear();
-//            return;
-//        }
 
         state.positions.resize(joint_position_state_interface_.size());
         state.velocities.resize(joint_velocity_state_interface_.size());
@@ -605,9 +579,6 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
                 break;
             }
         }
-
-        RCLCPP_INFO(
-                get_node()->get_logger(), "hardware state read size [%f]", (double )state.positions.size());
     }
 
     void AdmittanceController::read_state_from_command_interfaces(
@@ -673,7 +644,6 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         parameter = get_node()->get_parameter(parameter_name).get_value<double>();
         return false; // TODO: how to check "if_empty" for bool?
     }
-
 
 }  // namespace admittance_controller
 
