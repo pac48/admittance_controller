@@ -86,6 +86,7 @@ public:
         positions[i] = current_joint_state.positions[i];
     }
     model.setPosition(positions);
+    model.forwardPosition();
 
     return true;
   }

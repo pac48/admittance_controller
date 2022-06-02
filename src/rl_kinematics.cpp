@@ -113,7 +113,30 @@ bool RLKinematics::convert_cartesian_deltas_to_joint_deltas(
 //  matrix_s_ = svd.singularValues().asDiagonal();
 //  pseudo_inverse_ = svd.matrixV() * matrix_s_.inverse() * svd.matrixU().transpose();
 //
-model.calculateJacobianInverse(jacobian_, pseudo_inverse_, .001f, true);
+//model.calculateJacobianInverse(jacobian_, pseudo_inverse_, .001f, true);
+        auto W = rl::math::Matrix(6,6);
+        W.setIdentity();
+    auto W2 = rl::math::Matrix(numDof,numDof);
+    W2.setZero();
+//        double thresh = .3;
+//        double maxSum = 0;
+        for(auto r = 0; r < jacobian_.rows(); r++){
+            double sum = 0;
+            for(auto c = 0; c < jacobian_.cols(); c++){
+//             sum += std::max(std::abs(jacobian_(r, c))-thresh, 0.0);
+                W2(c,c) += std::abs(jacobian_(r, c))*std::abs(jacobian_(r, c));
+            }
+//            maxSum = std::max(maxSum, sum);
+//            W(r, r) = 1000*std::abs(delta_x[r]);// sum;
+        }
+        W2 = W2.inverse();
+        auto I = rl::math::Matrix(numDof,numDof);
+        I.setIdentity();
+
+
+//    std::cout << W2 <<  std::endl;
+    pseudo_inverse_ = (jacobian_.transpose()*W*jacobian_ + 0.005*W2*I).inverse()*jacobian_.transpose()*W;
+
   Eigen::VectorXd  delta_theta = pseudo_inverse_ * delta_x;
 //   delta_theta *= velocityScalingFactorForSingularity(delta_x, svd, pseudo_inverse_);
 
