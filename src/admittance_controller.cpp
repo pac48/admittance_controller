@@ -156,6 +156,8 @@ namespace admittance_controller
     AdmittanceController::update(const rclcpp::Time &time, const rclcpp::Duration &period) {
         // Realtime constraints are required in this function
 
+//        RCLCPP_INFO(get_node()->get_logger(), "clock type: %d",time.get_clock_type());
+
         // check controller state
         if (get_state().id() == lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
             return controller_interface::return_type::OK;
@@ -197,12 +199,17 @@ namespace admittance_controller
             valid_trajectory_point =
                     sample_trajectory(time, state_reference, start_segment_itr, end_segment_itr);
             before_last_point = is_before_last_point(end_segment_itr);
+            // add starting offset to user command
+            for (int i =0 ; i < state_offset_.positions.size(); i++){
+                state_reference.positions[i] += state_offset_.positions[i];
+            }
+            last_state_reference_ = state_reference;
         }
 
         if (!valid_trajectory_point || !have_trajectory()){
             // if there is no current trajectory, then the reference should be the current state
             state_reference = last_state_reference_;
-            last_state_reference_ = state_current;
+//            last_state_reference_ = state_current;
         }
 
         // save state reference before applying admittance rule
@@ -210,7 +217,11 @@ namespace admittance_controller
 
         // command: determine desired state from trajectory or pose goal
         // and apply admittance controller
+
         admittance_->update(state_current, ft_values, state_reference, period, state_desired);
+
+        RCLCPP_INFO(get_node()->get_logger(), "state_reference [%f, %f, %f]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2]);
+        RCLCPP_INFO(get_node()->get_logger(), "state_desired [%f, %f, %f] ", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2]);
 
         // Apply joint limiter
 //        if (joint_limiter_) joint_limiter_->enforce_limits(period);
@@ -366,7 +377,7 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
         // assign state interfaces
         num_joints_ = joint_names_.size();
-        jointHandles.resize(num_joints_);
+//        jointHandles.resize(num_joints_);
 
         // Initialize state message
         rtBuffers.state_publisher_->lock();
@@ -495,23 +506,25 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         // Initialize Admittance Rule from current states
         admittance_->reset();
 
-        // Handle state after restart or inittial startup
+        // Handle state after restart or initial startup
         read_state_from_hardware(last_state_reference_);
         read_state_from_command_interfaces(last_commanded_state_);
         // if last_state_reference_ is empty, we have no information about the state, assume zero
         if (last_state_reference_.positions.empty()) last_state_reference_.positions.assign(num_joints_, 0.0);
         if (last_state_reference_.velocities.empty()) last_state_reference_.velocities.assign(num_joints_, 0.0);
         if (last_state_reference_.accelerations.empty()) last_state_reference_.accelerations.assign(num_joints_, 0.0);
+        // if in open loop mode, the position interface should be ignored even if it exist
+        if (open_loop_control_){
+            state_offset_ = last_state_reference_;
+            joint_position_state_interface_.clear();
+        }
         // if last_commanded_state_ is empty, then our safest option is to set it to the current state
         if (last_commanded_state_.positions.empty()) last_commanded_state_.positions = last_state_reference_.positions;
         if (last_commanded_state_.velocities.empty()) last_commanded_state_.velocities = last_state_reference_.velocities;
         if (last_commanded_state_.accelerations.empty()) last_commanded_state_.accelerations = last_state_reference_.accelerations;
-        // if in open loop mode, the position interface should be ignored even if it exist
-        if (open_loop_control_){
-            joint_position_state_interface_.clear();
-        }
+
         // if there are no state position interfaces, then force open loop control
-        if (joint_position_state_interface_.empty()){
+        if (joint_position_state_interface_.empty() || !open_loop_control_){
             open_loop_control_ = true;
             RCLCPP_INFO(get_node()->get_logger(), "control loop control set to true because no position state interface was provided. ");
         }

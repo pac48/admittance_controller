@@ -143,7 +143,7 @@ controller_interface::return_type AdmittanceRule::update(
   pose_error_pose.header.frame_id = parameters_.ik_base_frame_;
   pose_error_pose.child_frame_id = parameters_.control_frame_;
 
-  if (!parameters_.open_loop_control_) {
+  if (!parameters_.open_loop_control_ || true) {
     get_pose_of_control_frame_in_base_frame(current_pose_ik_base_frame_);
 
     // Convert all data to arrays for simpler calculation
@@ -225,16 +225,17 @@ controller_interface::return_type AdmittanceRule::update(
   trajectory_msgs::msg::JointTrajectoryPoint & desired_joint_state)
 {
     auto num_joints_ = current_joint_state.positions.size();
-    if (desired_joint_state.positions.empty())
+  desired_joint_state.positions.assign(num_joints_, 0.0);
+    desired_joint_state.velocities.assign(num_joints_, 0.0);
+    if (reference_joint_state.positions.empty())
     {
-        desired_joint_state.positions.assign(num_joints_, 0.0);
+      desired_joint_state.accelerations.assign(num_joints_, 0.0);
     }
     else
     {
         desired_joint_state.positions = reference_joint_state.positions;
     }
-    desired_joint_state.velocities.assign(num_joints_, 0.0);
-    desired_joint_state.accelerations.assign(num_joints_, 0.0);
+
   reference_joint_deltas_vec_.assign(reference_joint_deltas_vec_.size(), 0.0);
 
   // Calculate joint_deltas only when feed-forward is needed, i.e., trajectory is valid
@@ -273,6 +274,7 @@ controller_interface::return_type AdmittanceRule::update(
 
   convert_array_to_message(reference_deltas_vec_ik_base_, reference_deltas_ik_base_);
 
+    reference_pose_from_joint_deltas_ik_base_frame_ = geometry_msgs::msg::PoseStamped(); // reset to zero
   // Add deltas to previously-desired pose to get the next desired pose
   tf2::doTransform(reference_pose_from_joint_deltas_ik_base_frame_,
                    reference_pose_from_joint_deltas_ik_base_frame_,

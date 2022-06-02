@@ -158,6 +158,7 @@ protected:
     rclcpp::Time last_state_publish_time_;
     trajectory_msgs::msg::JointTrajectoryPoint last_commanded_state_;
     trajectory_msgs::msg::JointTrajectoryPoint last_state_reference_;
+    trajectory_msgs::msg::JointTrajectoryPoint state_offset_;
     trajectory_msgs::msg::JointTrajectoryPoint prev_trajectory_point_;
     // control loop data
     trajectory_msgs::msg::JointTrajectoryPoint state_reference, state_current, state_desired,
