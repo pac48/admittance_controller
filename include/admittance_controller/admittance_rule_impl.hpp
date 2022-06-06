@@ -224,9 +224,30 @@ controller_interface::return_type AdmittanceRule::update(
   const rclcpp::Duration & period,
   trajectory_msgs::msg::JointTrajectoryPoint & desired_joint_state)
 {
+
+    for (int i = 0; i< reference_joint_state.positions.size(); i++){
+        admittance_velocity_arr_[i] = (reference_joint_state.positions[i]-current_joint_state.positions[i]);
+        desired_joint_state.positions[i] = admittance_velocity_arr_[i]*.1;
+    }
+
+    return controller_interface::return_type::OK;
+
     auto num_joints_ = current_joint_state.positions.size();
   desired_joint_state.positions.assign(num_joints_, 0.0);
     desired_joint_state.velocities.assign(num_joints_, 0.0);
+    desired_joint_state.effort.assign(num_joints_, 0.0);
+//    reference_joint_deltas_vec_.assign(reference_joint_deltas_vec_.size(), 0.0);
+    std::vector<double> desired_relative_pose(6);
+    std::vector<double> pose_error(6);
+    std::vector<double> cur_ee_pos(6);
+    std::vector<double> desired_ee_pos(6);
+    std::vector<double> admittance_acceleration(6);
+
+    std::vector<double> joint_vel(num_joints_);
+    std::vector<double> joint_acc(num_joints_);
+    std::vector<double> joint_torques(num_joints_);
+
+
     if (reference_joint_state.positions.empty())
     {
       desired_joint_state.accelerations.assign(num_joints_, 0.0);
@@ -236,52 +257,109 @@ controller_interface::return_type AdmittanceRule::update(
         desired_joint_state.positions = reference_joint_state.positions;
     }
 
-  reference_joint_deltas_vec_.assign(reference_joint_deltas_vec_.size(), 0.0);
+
+    process_wrench_measurements(measured_wrench);
+    std::vector<double> wrench = {measured_wrench.force.x*0, measured_wrench.force.y*0, measured_wrench.force.z*0,
+                                  measured_wrench.torque.x*0, measured_wrench.torque.y*0, measured_wrench.torque.z*0};
+    // TODO fix this
+
+
+        ik_->update_robot_state(reference_joint_state);
+        ik_->calculate_end_effector_position(desired_ee_pos);
+
+    ik_->update_robot_state(current_joint_state);
+        ik_->calculate_end_effector_position(cur_ee_pos);
+
+        // Compute admittance control law: F = M*a + D*v + S*(x - x_d)
+    for (size_t axis = 0; axis < 3; ++axis) { //TODO 6
+        if (parameters_.selected_axes_[axis]) {
+            pose_error[axis] = cur_ee_pos[axis] - desired_ee_pos[axis];
+            // TODO(destogl): check if velocity is measured from hardware
+            admittance_acceleration[axis] = (1.0 / parameters_.mass_[axis]) * (wrench[axis] -
+                    (parameters_.damping_[axis] * admittance_velocity_arr_[axis]) -
+                    (parameters_.stiffness_[axis] * pose_error[axis]) );
+            admittance_velocity_arr_[axis] = admittance_acceleration[axis] * 1.0 / 100;//period.nanoseconds()
+            // Calculate position
+//            desired_relative_pose[axis] = admittance_velocity_arr_[axis] * 1.0 / 100;
+//            if (std::fabs(desired_relative_pose[axis]) < POSE_EPSILON) {
+//                desired_relative_pose[axis] = 0.0;
+//            }
+        }
+    }
+
+    // TODO this is a hack
+    std::vector<double> tmp(6);
+    for(int i =0; i < 6; i++){
+        tmp[i] = admittance_velocity_arr_[i];
+    }
+
+        if (!ik_->convert_cartesian_deltas_to_joint_deltas(
+                tmp, identity_transform_, joint_vel) ||
+                !ik_->convert_cartesian_deltas_to_joint_deltas(
+                        admittance_acceleration, identity_transform_, joint_acc) ||
+                        !ik_->convert_cartesian_deltas_to_joint_deltas(
+                        wrench, identity_transform_, joint_torques)
+                        ){
+            RCLCPP_ERROR(rclcpp::get_logger("AdmittanceRule"),
+                         "Conversion of joint deltas to Cartesian deltas failed. Sending current joint"
+                         " values to the robot.");
+            return controller_interface::return_type::ERROR;
+        }
+
+        for (size_t j = 0; j < num_joints_; j++)
+        {
+            // Store data for publishing to state variable
+            desired_joint_state.positions[j] = reference_joint_state.positions[j] + joint_vel[j]*(1.0/100);
+            desired_joint_state.velocities[j] = joint_vel[j];
+            desired_joint_state.accelerations[j] = joint_acc[j];
+            desired_joint_state.effort[j] = joint_torques[j];
+        }
+
 
   // Calculate joint_deltas only when feed-forward is needed, i.e., trajectory is valid
   // If there are no positions, expect velocities
-  if (reference_joint_state.positions.empty())
-  {
-    for (size_t index = 0; index < reference_joint_state.velocities.size(); ++index)
-    {
-      reference_joint_deltas_vec_[index] =
-        reference_joint_state.velocities[index] * .1;//period.seconds();
-    }
-  }
-  else
-  {
-    for (size_t index = 0; index < reference_joint_state.positions.size(); ++index)
-    {
-      reference_joint_deltas_vec_[index] = angles::shortest_angular_distance(
-        current_joint_state.positions[index], reference_joint_state.positions[index]);
-    }
-  }
+//  if (reference_joint_state.positions.empty())
+//  {
+//    for (size_t index = 0; index < reference_joint_state.velocities.size(); ++index)
+//    {
+//      reference_joint_deltas_vec_[index] =
+//        reference_joint_state.velocities[index] * 1.0/100;//period.seconds();
+//    }
+//  }
+//  else
+//  {
+//    for (size_t index = 0; index < reference_joint_state.positions.size(); ++index)
+//    {
+//      reference_joint_deltas_vec_[index] = angles::shortest_angular_distance(
+//        current_joint_state.positions[index], reference_joint_state.positions[index]);
+//    }
+//  }
 
 
   // Get feed-forward cartesian deltas in the ik_base frame.
   // Since ik_base is MoveIt's working frame, the transform is identity.
-  ik_->update_robot_state(current_joint_state);
-  if (!ik_->convert_joint_deltas_to_cartesian_deltas(
-    reference_joint_deltas_vec_, identity_transform_, reference_deltas_vec_ik_base_))
-  {
-    RCLCPP_ERROR(rclcpp::get_logger("AdmittanceRule"),
-                 "Conversion of joint deltas to Cartesian deltas failed. Sending current joint"
-                 " values to the robot.");
-    desired_joint_state = current_joint_state;
-    std::fill(desired_joint_state.velocities.begin(), desired_joint_state.velocities.end(), 0.0);
-    return controller_interface::return_type::ERROR;
-  }
+//  ik_->update_robot_state(current_joint_state);
+//  if (!ik_->convert_joint_deltas_to_cartesian_deltas(
+//    reference_joint_deltas_vec_, identity_transform_, reference_deltas_vec_ik_base_))
+//  {
+//    RCLCPP_ERROR(rclcpp::get_logger("AdmittanceRule"),
+//                 "Conversion of joint deltas to Cartesian deltas failed. Sending current joint"
+//                 " values to the robot.");
+//    desired_joint_state = current_joint_state;
+//    std::fill(desired_joint_state.velocities.begin(), desired_joint_state.velocities.end(), 0.0);
+//    return controller_interface::return_type::ERROR;
+//  }
 
-  convert_array_to_message(reference_deltas_vec_ik_base_, reference_deltas_ik_base_);
-
-    reference_pose_from_joint_deltas_ik_base_frame_ = geometry_msgs::msg::PoseStamped(); // reset to zero
-  // Add deltas to previously-desired pose to get the next desired pose
-  tf2::doTransform(reference_pose_from_joint_deltas_ik_base_frame_,
-                   reference_pose_from_joint_deltas_ik_base_frame_,
-                   reference_deltas_ik_base_);
-
-  update(current_joint_state, measured_wrench, reference_pose_from_joint_deltas_ik_base_frame_,
-         period, desired_joint_state);
+//  convert_array_to_message(reference_deltas_vec_ik_base_, reference_deltas_ik_base_);
+//
+//    reference_pose_from_joint_deltas_ik_base_frame_ = geometry_msgs::msg::PoseStamped(); // reset to zero
+//  // Add deltas to previously-desired pose to get the next desired pose
+//  tf2::doTransform(reference_pose_from_joint_deltas_ik_base_frame_,
+//                   reference_pose_from_joint_deltas_ik_base_frame_,
+//                   reference_deltas_ik_base_);
+//
+//  update(current_joint_state, measured_wrench, reference_pose_from_joint_deltas_ik_base_frame_,
+//         period, desired_joint_state);
 
   return controller_interface::return_type::OK;
 }
@@ -425,14 +503,14 @@ void AdmittanceRule::calculate_admittance_rule(
     if (parameters_.selected_axes_[axis])
     {
       // TODO(destogl): check if velocity is measured from hardware
-      const double admittance_acceleration = (1 / parameters_.mass_[axis]) * (measured_wrench[axis] -
+      const double admittance_acceleration = (1.0 / parameters_.mass_[axis]) * (measured_wrench[axis] -
                                                    parameters_.damping_[axis] * admittance_velocity_arr_[axis] -
                                                    parameters_.stiffness_[axis] * pose_error[axis]);
 
-      admittance_velocity_arr_[axis] += admittance_acceleration * 0.1;//period.nanoseconds()
+      admittance_velocity_arr_[axis] += admittance_acceleration * 1.0/100;//period.nanoseconds()
 
       // Calculate position
-      desired_relative_pose[axis] = admittance_velocity_arr_[axis] * 0.1;
+      desired_relative_pose[axis] = admittance_velocity_arr_[axis] * 1.0/100;
       if (std::fabs(desired_relative_pose[axis]) < POSE_EPSILON)
       {
         desired_relative_pose[axis] = 0.0;
@@ -467,7 +545,7 @@ controller_interface::return_type AdmittanceRule::calculate_desired_joint_state(
     {
       desired_joint_state.positions[i] =
         current_joint_state.positions[i] + relative_desired_joint_state_vec_[i];
-      desired_joint_state.velocities[i] = relative_desired_joint_state_vec_[i] / 0.1;//period.seconds();
+      desired_joint_state.velocities[i] = relative_desired_joint_state_vec_[i] / (1.0/100);//period.seconds();
       // TODO(destogl): for now acceleration commands are not used but here simply resetted
       desired_joint_state.accelerations[i] = 0.0;
       // TODO(destogl): in the future we need here to remember previously commanded velocity

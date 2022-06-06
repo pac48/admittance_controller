@@ -47,6 +47,15 @@ public:
    */
   bool initialize(std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node, const std::string & group_name);
 
+
+    /**
+     * \brief Calculates the end effector position last set robot state.
+     * \param end_effector_position output vector with end effector position
+     * \return true if successful
+     */
+    bool
+    calculate_end_effector_position(std::vector<double> & end_effector_position);
+
   /**
    * \brief Convert Cartesian delta-x to joint delta-theta, using the Jacobian.
    * \param delta_x_vec input Cartesian deltas (x, y, z, rx, ry, rz)
@@ -75,15 +84,15 @@ public:
 
   bool update_robot_state(const trajectory_msgs::msg::JointTrajectoryPoint & current_joint_state)
   {
-    if (current_joint_state.positions.size() != model.getPosition().size())
+    if (current_joint_state.positions.size() != control_inds.size())
     {
       RCLCPP_ERROR(node_->get_logger(), "Vector size mismatch in update_robot_state()");
       return false;
     }
 
     auto positions = model.getPosition();
-    for(int i =0; i < positions.size(); i++){
-        positions[i] = current_joint_state.positions[i];
+    for(int i =0; i < control_inds.size(); i++){
+        positions[control_inds[i]] = current_joint_state.positions[i];
     }
     model.setPosition(positions);
     model.forwardPosition();
@@ -115,10 +124,11 @@ private:
   Eigen::MatrixXd matrix_s_;
   Eigen::MatrixXd pseudo_inverse_;
 
+  std::vector<int> control_inds;
+
         int numEE;
         int numDof;
         int offseti;
-        int offsetj;
 
 };
 

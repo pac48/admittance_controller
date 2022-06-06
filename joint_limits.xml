@@ -1,0 +1,9 @@
+<library path="admittance_joint_limits">
+  <class name="admittance_joint_limits/RLKinematics"
+         type="admittance_joint_limits::RLKinematics"
+         base_class_type="joint_limits_interface::JointLimitHandle">
+    <description>
+      joint limit plug in
+    </description>
+  </class>
+</library>

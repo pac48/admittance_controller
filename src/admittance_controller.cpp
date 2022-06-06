@@ -220,8 +220,11 @@ namespace admittance_controller
 
         admittance_->update(state_current, ft_values, state_reference, period, state_desired);
 
-        RCLCPP_INFO(get_node()->get_logger(), "state_reference [%f, %f, %f]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2]);
-        RCLCPP_INFO(get_node()->get_logger(), "state_desired [%f, %f, %f] ", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2]);
+//        state_desired = state_reference;
+
+//        RCLCPP_INFO(get_node()->get_logger(), "state_reference [%f, %f, %f]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2]);
+//        RCLCPP_INFO(get_node()->get_logger(), "state_desired [%f, %f, %f] ", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2]);
+
 
         // Apply joint limiter
 //        if (joint_limiter_) joint_limiter_->enforce_limits(period);

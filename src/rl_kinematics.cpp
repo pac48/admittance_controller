@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-/// \author: Paul Gesel
+/// author: Paul Gesel
 
 #include <fstream>
 #include "rl_differential_ik_plugin/rl_kinematics.hpp"
 #include "rl/mdl/UrdfFactory.h"
+#include "rl/mdl/Joint.h"
 
 
 constexpr auto ROS_LOG_THROTTLE_PERIOD = std::chrono::milliseconds(1000).count();
@@ -33,9 +34,7 @@ namespace rl_differential_ik_plugin
 
 bool RLKinematics::initialize(std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node, const std::string & group_name)
 {
-        int endEffectorIndex = 0;
-
-    node_ = node;
+        node_ = node;
 
     rl::mdl::UrdfFactory urdf;
 
@@ -49,23 +48,37 @@ bool RLKinematics::initialize(std::shared_ptr<rclcpp_lifecycle::LifecycleNode> n
 
     urdf.load("robot.urdf", &model);
 
-    numEE = model.getOperationalDof();
+    std::unordered_set<std::string> control_joint = {"shoulder_pan_joint",
+                                 "shoulder_lift_joint",
+                                 "elbow_joint",
+                                 "wrist_1_joint",
+                                 "wrist_2_joint",
+                                 "wrist_3_joint"};
+
+    for (int i = 0; i < model.getJoints(); i++){
+        if (control_joint.find(model.getJoint(i)->getName()) != control_joint.end()){
+            control_inds.push_back(i);
+        }
+    }
+
+
+    numEE = model.getOperationalDof()/6;
     numDof = model.getDof();
+    int endEffectorIndex = 0;
     offseti = endEffectorIndex*6;
-    offsetj = 0; // maybe used for multi-arm systems
-//    offsetj = endEffectorIndex*(numDof/numOfArms);
 
     all_jacobians_ = rl::math::Matrix(6*numEE, numDof);
-    jacobian_ = rl::math::Matrix(6, numDof);
-    pseudo_inverse_ = rl::math::Matrix(numDof, 6);
+    jacobian_ = rl::math::Matrix(6, control_inds.size());
+    pseudo_inverse_ = rl::math::Matrix(control_inds.size(), 6);
 
 }
 
 void RLKinematics::calculateJacobian(){
     model.calculateJacobian(all_jacobians_);
     for (int i =0; i < 6; i++){
-        for (int j = 0; j < numDof; j++){
-            jacobian_(i,j) = all_jacobians_(i+offseti,j+offsetj);
+        int ind = 0;
+        for (int j : control_inds){
+            jacobian_(i, ind++) = all_jacobians_(i+offseti,j);
         }
     }
 }
@@ -78,33 +91,33 @@ bool RLKinematics::convert_cartesian_deltas_to_joint_deltas(
   // see here for this conversion: https://stackoverflow.com/questions/26094379/typecasting-eigenvectorxd-to-stdvector
   Eigen::VectorXd delta_x = Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(&delta_x_vec[0], delta_x_vec.size());
 
-  try
-  {
-    // 4x4 transformation matrix
-    const Eigen::Isometry3d affine_transform = tf2::transformToEigen(control_frame_to_ik_base);
-
-    // Build the 6x6 transformation matrix
-    Eigen::MatrixXd twist_transform(6,6);
-    // upper left 3x3 block is the rotation part
-    twist_transform.block(0,0,3,3) = affine_transform.rotation();
-    // upper right 3x3 block is all zeros
-    twist_transform.block(0,3,3,3) = Eigen::MatrixXd::Zero(3,3);
-    // lower left 3x3 block is tricky. See https://core.ac.uk/download/pdf/154240607.pdf
-    Eigen::MatrixXd pos_vector_3x3(3,3);
-    pos_vector_3x3(0,0) = 0;  pos_vector_3x3(0,1) = -affine_transform.translation().z();  pos_vector_3x3(0,2) = affine_transform.translation().y();
-    pos_vector_3x3(1, 0) = affine_transform.translation().z();  pos_vector_3x3(1,1) = 0;  pos_vector_3x3(1,2) = -affine_transform.translation().x();
-    pos_vector_3x3(2, 0) = -affine_transform.translation().y();  pos_vector_3x3(2,1) = affine_transform.translation().x();  pos_vector_3x3(1,2) = 0;
-    twist_transform.block(3,0,3,3) = pos_vector_3x3 * affine_transform.rotation();
-    // lower right 3x3 block is the rotation part
-    twist_transform.block(3,3,3,3) = affine_transform.rotation();
-
-    delta_x = twist_transform * delta_x;
-  }
-  catch (const tf2::TransformException & ex)
-  {
-    RCLCPP_ERROR(node_->get_logger(), "Transformation of twist failed.");
-    return false;
-  }
+//  try
+//  {
+//    // 4x4 transformation matrix
+//    const Eigen::Isometry3d affine_transform = tf2::transformToEigen(control_frame_to_ik_base);
+//
+//    // Build the 6x6 transformation matrix
+//    Eigen::MatrixXd twist_transform(6,6);
+//    // upper left 3x3 block is the rotation part
+//    twist_transform.block(0,0,3,3) = affine_transform.rotation();
+//    // upper right 3x3 block is all zeros
+//    twist_transform.block(0,3,3,3) = Eigen::MatrixXd::Zero(3,3);
+//    // lower left 3x3 block is tricky. See https://core.ac.uk/download/pdf/154240607.pdf
+//    Eigen::MatrixXd pos_vector_3x3(3,3);
+//    pos_vector_3x3(0,0) = 0;  pos_vector_3x3(0,1) = -affine_transform.translation().z();  pos_vector_3x3(0,2) = affine_transform.translation().y();
+//    pos_vector_3x3(1, 0) = affine_transform.translation().z();  pos_vector_3x3(1,1) = 0;  pos_vector_3x3(1,2) = -affine_transform.translation().x();
+//    pos_vector_3x3(2, 0) = -affine_transform.translation().y();  pos_vector_3x3(2,1) = affine_transform.translation().x();  pos_vector_3x3(1,2) = 0;
+//    twist_transform.block(3,0,3,3) = pos_vector_3x3 * affine_transform.rotation();
+//    // lower right 3x3 block is the rotation part
+//    twist_transform.block(3,3,3,3) = affine_transform.rotation();
+//
+//    delta_x = twist_transform * delta_x;
+//  }
+//  catch (const tf2::TransformException & ex)
+//  {
+//    RCLCPP_ERROR(node_->get_logger(), "Transformation of twist failed.");
+//    return false;
+//  }
 
   // Multiply with the pseudoinverse to get delta_theta
   calculateJacobian();
@@ -116,8 +129,8 @@ bool RLKinematics::convert_cartesian_deltas_to_joint_deltas(
 //model.calculateJacobianInverse(jacobian_, pseudo_inverse_, .001f, true);
         auto W = rl::math::Matrix(6,6);
         W.setIdentity();
-    auto W2 = rl::math::Matrix(numDof,numDof);
-    W2.setZero();
+        auto W2 = rl::math::Matrix(control_inds.size(),control_inds.size());
+        W2.setZero();
 //        double thresh = .3;
 //        double maxSum = 0;
         for(auto r = 0; r < jacobian_.rows(); r++){
@@ -130,7 +143,7 @@ bool RLKinematics::convert_cartesian_deltas_to_joint_deltas(
 //            W(r, r) = 1000*std::abs(delta_x[r]);// sum;
         }
         W2 = W2.inverse();
-        auto I = rl::math::Matrix(numDof,numDof);
+        auto I = rl::math::Matrix(control_inds.size(),control_inds.size());
         I.setIdentity();
 
 
@@ -195,6 +208,22 @@ bool RLKinematics::convert_joint_deltas_to_cartesian_deltas(
 
   return true;
 }
+
+    bool RLKinematics::calculate_end_effector_position(std::vector<double> &end_effector_position) {
+        if (end_effector_position.size() != 6){
+            RCLCPP_ERROR(node_->get_logger(), "the end_effector_position input vector must size 6");
+            return false;
+        }
+        int endEffectorIndex = 0;
+        auto position = model.getOperationalPosition(endEffectorIndex);
+//        for (int i=0; i < 3; i++){
+            end_effector_position[0] = position.translation().x();
+        end_effector_position[1] = position.translation().y();
+        end_effector_position[2] = position.translation().z();
+//        }
+
+        return true;
+    }
 
 //Eigen::Isometry3d RLKinematics::get_link_transform(
 //  const std::string& link_name, const trajectory_msgs::msg::JointTrajectoryPoint & joint_state)

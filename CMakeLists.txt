@@ -44,9 +44,9 @@ add_library(admittance_controller SHARED
 #add_library(my_admittance_controller SHARED
 #        src/admittance_controller.cpp
 #        )
-add_library(moveit_differential_ik_plugin SHARED # this is broken currently
-        src/moveit_kinematics.cpp
-        )
+#add_library(moveit_differential_ik_plugin SHARED # this is broken currently
+#        src/moveit_kinematics.cpp
+#        )
 add_library(rl_differential_ik_plugin SHARED
         src/rl_kinematics.cpp
         )
@@ -61,11 +61,11 @@ target_include_directories(
 #        PRIVATE
 #        include
 #)
-target_include_directories(
-        moveit_differential_ik_plugin
-        PRIVATE
-        include
-)
+#target_include_directories(
+#        moveit_differential_ik_plugin
+#        PRIVATE
+#        include
+#)
 target_include_directories(
        rl_differential_ik_plugin
         PRIVATE
@@ -78,9 +78,9 @@ target_link_libraries(
 #target_link_libraries(
 #        my_admittance_controller
 #)
-target_link_libraries(
-        moveit_differential_ik_plugin
-)
+#target_link_libraries(
+#        moveit_differential_ik_plugin
+#)
 target_link_libraries(
         rl_differential_ik_plugin
 )
@@ -132,23 +132,23 @@ ament_target_dependencies(
 #        tf2_ros
 #        angles
 #)
-ament_target_dependencies(
-        moveit_differential_ik_plugin
-        rcutils
-        geometry_msgs
-        trajectory_msgs
-        ik_interface
-        pluginlib
-        rclcpp
-        rclcpp_lifecycle
-        realtime_tools
-        tf2
-        tf2_eigen
-        tf2_geometry_msgs
-        tf2_ros
-        angles
-        moveit_ros_planning
-)
+#ament_target_dependencies(
+#        moveit_differential_ik_plugin
+#        rcutils
+#        geometry_msgs
+#        trajectory_msgs
+#        ik_interface
+#        pluginlib
+#        rclcpp
+#        rclcpp_lifecycle
+#        realtime_tools
+#        tf2
+#        tf2_eigen
+#        tf2_geometry_msgs
+#        tf2_ros
+#        angles
+#        moveit_ros_planning
+#)
 ament_target_dependencies(
         rl_differential_ik_plugin
         rcutils
@@ -172,7 +172,7 @@ ament_target_dependencies(
 # which is appropriate when building the dll but not consuming it.
 target_compile_definitions(admittance_controller PRIVATE "ADMITTANCE_CONTROLLER_BUILDING_DLL")
 #target_compile_definitions(my_admittance_controller PRIVATE "MY_ADMITTANCE_CONTROLLER_BUILDING_DLL")
-target_compile_definitions(moveit_differential_ik_plugin PRIVATE "IK_BUILDING_DLL")
+#target_compile_definitions(moveit_differential_ik_plugin PRIVATE "IK_BUILDING_DLL")
 target_compile_definitions(rl_differential_ik_plugin PRIVATE "RL_IK_BUILDING_DLL")
 
 
@@ -193,12 +193,12 @@ install(
 #        ARCHIVE DESTINATION lib
 #        LIBRARY DESTINATION lib
 #)
-install(
-        TARGETS moveit_differential_ik_plugin
-        RUNTIME DESTINATION bin
-        ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib
-)
+#install(
+#        TARGETS moveit_differential_ik_plugin
+#        RUNTIME DESTINATION bin
+#        ARCHIVE DESTINATION lib
+#        LIBRARY DESTINATION lib
+#)
 install(
         TARGETS rl_differential_ik_plugin
         RUNTIME DESTINATION bin
@@ -249,9 +249,9 @@ ament_export_libraries(
 #ament_export_libraries(
 #        my_admittance_controller
 #)
-ament_export_libraries(
-        moveit_differential_ik_plugin
-)
+#ament_export_libraries(
+#        moveit_differential_ik_plugin
+#)
 ament_export_libraries(
         rl_differential_ik_plugin
 )
