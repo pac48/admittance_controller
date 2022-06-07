@@ -526,7 +526,9 @@ protected:
 
   std::vector<double> relative_desired_joint_state_vec_;
 
-  // TODO(destogl): find out better datatype for this
+    std::vector<double> pos;//paul
+
+    // TODO(destogl): find out better datatype for this
   // Values calculated by admittance rule (Cartesian space: [x, y, z, rx, ry, rz]) - state output
   // "positions" hold "pose_error" values
   // "effort" hold "measured_wrench" values
