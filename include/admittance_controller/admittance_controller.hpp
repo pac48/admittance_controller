@@ -130,7 +130,7 @@ protected:
     double action_monitor_rate{};
     bool open_loop_control_;
     // ROS subscribers
-    rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr input_joint_command_subscriber_ = nullptr;
+//    rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr input_joint_command_subscriber_ = nullptr;
     rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr input_wrench_command_subscriber_ = nullptr;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr input_pose_command_subscriber_ = nullptr;
     rclcpp::Publisher<control_msgs::msg::AdmittanceControllerState>::SharedPtr  s_publisher_ = nullptr;
@@ -150,10 +150,10 @@ protected:
             hardware_interface::HW_IF_POSITION,
             hardware_interface::HW_IF_VELOCITY,
     };
-    const std::vector<std::string> allowed_command_interface_types_ = {
-                hardware_interface::HW_IF_POSITION,
-                hardware_interface::HW_IF_VELOCITY,
-                };
+//    const std::vector<std::string> allowed_command_interface_types_ = {
+//                hardware_interface::HW_IF_POSITION,
+//                hardware_interface::HW_IF_VELOCITY,
+//                };
     // last time update or on activate was run
     rclcpp::Time last_state_publish_time_;
     trajectory_msgs::msg::JointTrajectoryPoint last_commanded_state_;

@@ -200,16 +200,21 @@ namespace admittance_controller
                     sample_trajectory(time, state_reference, start_segment_itr, end_segment_itr);
             before_last_point = is_before_last_point(end_segment_itr);
             // add starting offset to user command
-            for (int i =0 ; i < state_offset_.positions.size(); i++){
+            for (int i =0 ; i < state_offset_.positions.size(); i++) {
                 state_reference.positions[i] += state_offset_.positions[i];
+            }
+            for (int i =0 ; i < state_reference.velocities.size(); i++) {
+                // add simple P control
+                state_reference.velocities[i] +=  .4*(state_reference.positions[i] - state_current.positions[i]);
             }
             last_state_reference_ = state_reference;
         }
 
-        if (!valid_trajectory_point || !have_trajectory()){
+        if (!valid_trajectory_point || !have_trajectory() || !before_last_point){
             // if there is no current trajectory, then the reference should be the current state
             state_reference = last_state_reference_;
-//            last_state_reference_ = state_current;
+            state_reference.velocities.assign(num_joints_, 0.0);
+            state_reference.accelerations.assign(num_joints_, 0.0);
         }
 
         // save state reference before applying admittance rule
@@ -222,8 +227,12 @@ namespace admittance_controller
 
 //        state_desired = state_reference;
 
-//        RCLCPP_INFO(get_node()->get_logger(), "state_reference [%f, %f, %f]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2]);
-//        RCLCPP_INFO(get_node()->get_logger(), "state_desired [%f, %f, %f] ", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2]);
+        RCLCPP_INFO(get_node()->get_logger(), "ft_values [%f, %f, %f]", ft_values.force.x,ft_values.force.y,ft_values.force.z);
+
+RCLCPP_INFO(get_node()->get_logger(), "current_reference [%f, %f, %f]", state_current.positions[0],state_current.positions[1],state_current.positions[2]);
+
+        RCLCPP_INFO(get_node()->get_logger(), "state_reference [%f, %f, %f]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2]);
+        RCLCPP_INFO(get_node()->get_logger(), "state_desired [%f, %f, %f] ", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2]);
 
 
         // Apply joint limiter
@@ -311,26 +320,26 @@ namespace admittance_controller
             RCLCPP_ERROR(get_node()->get_logger(), "Error happened during reading parameters");
             return CallbackReturn::ERROR;
         }
-        //  sort command_interface_types_
-        auto command_interface = &allowed_command_interface_types_;
-        std::sort(command_interface_types_.begin(), command_interface_types_.end(),
-                  [command_interface](const std::string& lhs, const std::string& rhs)->bool {
-                      auto it1 = std::find(command_interface->begin(),
-                                           command_interface->end(), lhs);
-                      auto it2 = std::find(command_interface->begin(),
-                                           command_interface->end(), rhs);
-                      return std::distance(command_interface->begin(), it1) < std::distance(command_interface->begin(), it2);
-                  });
-        // sort command_state_types_
-        auto state_interface = &allowed_state_interface_types_;
-        std::sort(state_interface_types_.begin(), state_interface_types_.end(),
-                  [state_interface](const std::string& lhs, const std::string& rhs)->bool {
-                      auto it1 = std::find(state_interface->begin(),
-                                           state_interface->end(), lhs);
-                      auto it2 = std::find(state_interface->begin(),
-                                           state_interface->end(), rhs);
-                      return std::distance(state_interface->begin(), it1) < std::distance(state_interface->begin(), it2);
-                  });
+//        //  sort command_interface_types_
+//        auto command_interface = &allowed_command_interface_types_;
+//        std::sort(command_interface_types_.begin(), command_interface_types_.end(),
+//                  [command_interface](const std::string& lhs, const std::string& rhs)->bool {
+//                      auto it1 = std::find(command_interface->begin(),
+//                                           command_interface->end(), lhs);
+//                      auto it2 = std::find(command_interface->begin(),
+//                                           command_interface->end(), rhs);
+//                      return std::distance(command_interface->begin(), it1) < std::distance(command_interface->begin(), it2);
+//                  });
+//        // sort command_state_types_
+//        auto state_interface = &allowed_state_interface_types_;
+//        std::sort(state_interface_types_.begin(), state_interface_types_.end(),
+//                  [state_interface](const std::string& lhs, const std::string& rhs)->bool {
+//                      auto it1 = std::find(state_interface->begin(),
+//                                           state_interface->end(), lhs);
+//                      auto it2 = std::find(state_interface->begin(),
+//                                           state_interface->end(), rhs);
+//                      return std::distance(state_interface->begin(), it1) < std::distance(state_interface->begin(), it2);
+//                  });
 
         // Print output so users can be sure the interface setup is correct
         auto get_interface_list = [](const std::vector<std::string> & interface_types) {
@@ -362,7 +371,7 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         }
 
         // setup and start non-realtime threads, like subscribers and publishers
-        input_joint_command_subscriber_ = get_node()->create_subscription<trajectory_msgs::msg::JointTrajectory>(
+        joint_command_subscriber_ = get_node()->create_subscription<trajectory_msgs::msg::JointTrajectory>(
                 "~/joint_trajectory", rclcpp::SystemDefaultsQoS(),
                 std::bind(&AdmittanceController::joint_trajectory_callback, this, std::placeholders::_1));
         input_wrench_command_subscriber_ = get_node()->create_subscription<geometry_msgs::msg::WrenchStamped>(
@@ -444,21 +453,37 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
         // on_activate is called when the lifecycle activates. Realtime constraints are required.
         controller_is_active_ = true;
         // assign state interfaces
-        std::vector<std::reference_wrapper<hardware_interface::LoanedStateInterface>>* joint_state_interfaces_ []
-                = {&joint_position_state_interface_, &joint_velocity_state_interface_,
-                   &joint_acceleration_state_interface_};
-        for (auto i = 0ul; i < state_interface_types_.size(); i++) {
-            for (auto j = 0ul; j < joint_names_.size(); j++) {
-                (*joint_state_interfaces_[i]).emplace_back(state_interfaces_[i * num_joints_ + j]);
-            }
-        }
+//        std::vector<std::reference_wrapper<hardware_interface::LoanedStateInterface>>* joint_state_interfaces_ []
+//                = {&joint_position_state_interface_, &joint_velocity_state_interface_,
+//                   &joint_acceleration_state_interface_};
+//        for (auto i = 0ul; i < state_interface_types_.size(); i++) {
+//            for (auto j = 0ul; j < joint_names_.size(); j++) {
+//                (*joint_state_interfaces_[i]).emplace_back(state_interfaces_[i * num_joints_ + j]);
+//            }
+//        }
         // assign command interfaces
-        std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>* joint_command_interfaces_ []
-                = {&joint_position_command_interface_, &joint_velocity_command_interface_,
-                   &joint_acceleration_command_interface_, &joint_effort_command_interface_};
+//        std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>* joint_command_interfaces_ []
+//                = {&joint_position_command_interface_, &joint_velocity_command_interface_,
+//                   &joint_acceleration_command_interface_, &joint_effort_command_interface_};
+
+        std::unordered_map<std::string, std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>*> command_interface_map = {
+                {hardware_interface::HW_IF_POSITION, &joint_position_command_interface_},
+                {hardware_interface::HW_IF_VELOCITY, &joint_velocity_command_interface_}
+        };
         for (auto i = 0ul; i < command_interface_types_.size(); i++) {
             for (auto j = 0ul; j < joint_names_.size(); j++) {
-                (*joint_command_interfaces_[i]).emplace_back(command_interfaces_[i * num_joints_ + j]);
+                command_interface_map[command_interface_types_[i]]->emplace_back(command_interfaces_[i * num_joints_ + j]);
+            }
+        }
+
+        std::unordered_map<std::string, std::vector<std::reference_wrapper<hardware_interface::LoanedStateInterface>>*> state_interface_map = {
+                {hardware_interface::HW_IF_POSITION, &joint_position_state_interface_},
+                {hardware_interface::HW_IF_VELOCITY, &joint_velocity_state_interface_}
+        };
+
+        for (auto i = 0ul; i < state_interface_types_.size(); i++) {
+            for (auto j = 0ul; j < joint_names_.size(); j++) {
+                state_interface_map[state_interface_types_[i]]->emplace_back(state_interfaces_[i * num_joints_ + j]);
             }
         }
 
@@ -511,23 +536,27 @@ RCLCPP_INFO(get_node()->get_logger(), "Action status changes will be monitored a
 
         // Handle state after restart or initial startup
         read_state_from_hardware(last_state_reference_);
-        read_state_from_command_interfaces(last_commanded_state_);
         // if last_state_reference_ is empty, we have no information about the state, assume zero
-        if (last_state_reference_.positions.empty()) last_state_reference_.positions.assign(num_joints_, 0.0);
+        if (last_state_reference_.positions.empty()) last_state_reference_.positions.resize(num_joints_, 0.0);
+        read_state_from_command_interfaces(last_commanded_state_);
+        // if last_commanded_state_ is empty, then our safest option is to set it to the last reference
+        if (last_commanded_state_.positions.empty()) last_commanded_state_.positions = last_state_reference_.positions;
+
+        // reset dynamic fields in case non-zero
         if (last_state_reference_.velocities.empty()) last_state_reference_.velocities.assign(num_joints_, 0.0);
         if (last_state_reference_.accelerations.empty()) last_state_reference_.accelerations.assign(num_joints_, 0.0);
+        if (last_commanded_state_.velocities.empty()) last_commanded_state_.velocities.assign(num_joints_, 0.0);
+        if (last_commanded_state_.accelerations.empty()) last_commanded_state_.accelerations.assign(num_joints_, 0.0);
+
+
         // if in open loop mode, the position interface should be ignored even if it exist
         if (open_loop_control_){
             state_offset_ = last_state_reference_;
             joint_position_state_interface_.clear();
         }
-        // if last_commanded_state_ is empty, then our safest option is to set it to the current state
-        if (last_commanded_state_.positions.empty()) last_commanded_state_.positions = last_state_reference_.positions;
-        if (last_commanded_state_.velocities.empty()) last_commanded_state_.velocities = last_state_reference_.velocities;
-        if (last_commanded_state_.accelerations.empty()) last_commanded_state_.accelerations = last_state_reference_.accelerations;
 
         // if there are no state position interfaces, then force open loop control
-        if (joint_position_state_interface_.empty() || !open_loop_control_){
+        if (joint_position_state_interface_.empty() && !open_loop_control_){
             open_loop_control_ = true;
             RCLCPP_INFO(get_node()->get_logger(), "control loop control set to true because no position state interface was provided. ");
         }

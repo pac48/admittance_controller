@@ -225,13 +225,6 @@ controller_interface::return_type AdmittanceRule::update(
   trajectory_msgs::msg::JointTrajectoryPoint & desired_joint_state)
 {
 
-    for (int i = 0; i< reference_joint_state.positions.size(); i++){
-        admittance_velocity_arr_[i] = (reference_joint_state.positions[i]-current_joint_state.positions[i]);
-        desired_joint_state.positions[i] = admittance_velocity_arr_[i]*.1;
-    }
-
-    return controller_interface::return_type::OK;
-
     auto num_joints_ = current_joint_state.positions.size();
   desired_joint_state.positions.assign(num_joints_, 0.0);
     desired_joint_state.velocities.assign(num_joints_, 0.0);
@@ -259,9 +252,14 @@ controller_interface::return_type AdmittanceRule::update(
 
 
     process_wrench_measurements(measured_wrench);
-    std::vector<double> wrench = {measured_wrench.force.x*0, measured_wrench.force.y*0, measured_wrench.force.z*0,
-                                  measured_wrench.torque.x*0, measured_wrench.torque.y*0, measured_wrench.torque.z*0};
-    // TODO fix this
+        std::vector<double> wrench;
+    for(auto val : measured_wrench_ik_base_frame_arr_){
+        wrench.push_back(val);
+    }
+//    {measured_wrench.force.x, measured_wrench.force.y, measured_wrench.force.z,
+//                                  measured_wrench.torque.x*0, measured_wrench.torque.y*0, measured_wrench.torque.z*0};
+
+    // TODO fix this ^^
 
 
         ik_->update_robot_state(reference_joint_state);
@@ -278,7 +276,8 @@ controller_interface::return_type AdmittanceRule::update(
             admittance_acceleration[axis] = (1.0 / parameters_.mass_[axis]) * (wrench[axis] -
                     (parameters_.damping_[axis] * admittance_velocity_arr_[axis]) -
                     (parameters_.stiffness_[axis] * pose_error[axis]) );
-            admittance_velocity_arr_[axis] = admittance_acceleration[axis] * 1.0 / 100;//period.nanoseconds()
+
+                    admittance_velocity_arr_[axis] += admittance_acceleration[axis] * 1.0 / 1000;//period.nanoseconds()
             // Calculate position
 //            desired_relative_pose[axis] = admittance_velocity_arr_[axis] * 1.0 / 100;
 //            if (std::fabs(desired_relative_pose[axis]) < POSE_EPSILON) {
@@ -309,8 +308,8 @@ controller_interface::return_type AdmittanceRule::update(
         for (size_t j = 0; j < num_joints_; j++)
         {
             // Store data for publishing to state variable
-            desired_joint_state.positions[j] = reference_joint_state.positions[j] + joint_vel[j]*(1.0/100);
-            desired_joint_state.velocities[j] = joint_vel[j];
+            desired_joint_state.positions[j] = current_joint_state.positions[j] + (reference_joint_state.velocities[j] + joint_vel[j])*(1.0/1000);
+            desired_joint_state.velocities[j] = reference_joint_state.velocities[j] + joint_vel[j];
             desired_joint_state.accelerations[j] = joint_acc[j];
             desired_joint_state.effort[j] = joint_torques[j];
         }
@@ -466,13 +465,22 @@ void AdmittanceRule::process_wrench_measurements(
 )
 {
   measured_wrench_.wrench = measured_wrench;
-  filter_chain_->update(measured_wrench_, measured_wrench_filtered_);
+  // TODO broken
+//  filter_chain_->update(measured_wrench_, measured_wrench_filtered_);
+    measured_wrench_.wrench.force.x = 0.9*measured_wrench_.wrench.force.x + 0.1*measured_wrench.force.x;
+    measured_wrench_.wrench.force.y = 0.9*measured_wrench_.wrench.force.y + 0.1*measured_wrench.force.y;
+    measured_wrench_.wrench.force.z = 0.9*measured_wrench_.wrench.force.z + 0.1*measured_wrench.force.z;
 
-  // TODO(destogl): rename this variables...
-  transform_to_ik_base_frame(measured_wrench_filtered_, measured_wrench_ik_base_frame_);
-  transform_to_control_frame(measured_wrench_filtered_, measured_wrench_ik_base_frame_);
+    measured_wrench_.wrench.torque.x = 0.9*measured_wrench_.wrench.torque.x + 0.1*measured_wrench.torque.x;
+    measured_wrench_.wrench.torque.y = 0.9*measured_wrench_.wrench.torque.y + 0.1*measured_wrench.torque.y;
+    measured_wrench_.wrench.torque.z = 0.9*measured_wrench_.wrench.torque.z + 0.1*measured_wrench.torque.z;
+
+
+    // TODO(destogl): rename this variables...
+  transform_to_ik_base_frame(measured_wrench_, measured_wrench_ik_base_frame_);
+//  transform_to_control_frame(measured_wrench_, measured_wrench_ik_base_frame_);
   convert_message_to_array(measured_wrench_ik_base_frame_, measured_wrench_ik_base_frame_arr_);
-
+    return;
   // TODO(destogl): optimize this checks!
   // If at least one measured force is nan set all to 0
   if (std::find_if(measured_wrench_ik_base_frame_arr_.begin(),
