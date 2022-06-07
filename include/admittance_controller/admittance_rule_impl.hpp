@@ -477,8 +477,8 @@ void AdmittanceRule::process_wrench_measurements(
 
 
     // TODO(destogl): rename this variables...
-  transform_to_ik_base_frame(measured_wrench_, measured_wrench_ik_base_frame_);
-//  transform_to_control_frame(measured_wrench_, measured_wrench_ik_base_frame_);
+//  transform_to_ik_base_frame(measured_wrench_, measured_wrench_ik_base_frame_);
+  transform_to_control_frame(measured_wrench_, measured_wrench_ik_base_frame_);
   convert_message_to_array(measured_wrench_ik_base_frame_, measured_wrench_ik_base_frame_arr_);
     return;
   // TODO(destogl): optimize this checks!

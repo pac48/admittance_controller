@@ -205,7 +205,7 @@ namespace admittance_controller
             }
             for (int i =0 ; i < state_reference.velocities.size(); i++) {
                 // add simple P control
-                state_reference.velocities[i] +=  .4*(state_reference.positions[i] - state_current.positions[i]);
+                state_reference.velocities[i] +=  2*(state_reference.positions[i] - state_current.positions[i]);
             }
             last_state_reference_ = state_reference;
         }
@@ -227,13 +227,13 @@ namespace admittance_controller
 
 //        state_desired = state_reference;
 
-        RCLCPP_INFO(get_node()->get_logger(), "ft_values [%f, %f, %f]", ft_values.force.x,ft_values.force.y,ft_values.force.z);
-
-RCLCPP_INFO(get_node()->get_logger(), "current_reference [%f, %f, %f]", state_current.positions[0],state_current.positions[1],state_current.positions[2]);
-
-        RCLCPP_INFO(get_node()->get_logger(), "state_reference [%f, %f, %f]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2]);
-        RCLCPP_INFO(get_node()->get_logger(), "state_desired [%f, %f, %f] ", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2]);
-
+//        RCLCPP_INFO(get_node()->get_logger(), "ft_values [%f, %f, %f]", ft_values.force.x,ft_values.force.y,ft_values.force.z);
+//
+//RCLCPP_INFO(get_node()->get_logger(), "current_reference [%f, %f, %f]", state_current.positions[0],state_current.positions[1],state_current.positions[2]);
+//
+//        RCLCPP_INFO(get_node()->get_logger(), "state_reference [%f, %f, %f]", state_reference.positions[0],state_reference.positions[1],state_reference.positions[2]);
+//        RCLCPP_INFO(get_node()->get_logger(), "state_desired [%f, %f, %f] ", state_desired.positions[0],state_desired.positions[1],state_desired.positions[2]);
+//
 
         // Apply joint limiter
 //        if (joint_limiter_) joint_limiter_->enforce_limits(period);
